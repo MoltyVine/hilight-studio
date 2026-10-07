@@ -73,7 +73,52 @@ import kotlinx.coroutines.withContext
 fun ruleLabel(rule: AppRule): String =
     if (rule.isCatchAll) stringResource(R.string.rules_any_app) else rule.label
 
-data class InstalledApp(val pkg: String, val label: String, val info: ApplicationInfo?)
+/**
+ * [icon] is set for apps from another profile (work, private): the package manager of this profile
+ * cannot load their icons, so the launcher service's already badged one travels with the entry.
+ */
+data class InstalledApp(
+    val pkg: String,
+    val label: String,
+    val info: ApplicationInfo?,
+    val icon: android.graphics.drawable.Drawable? = null,
+)
+
+/** Apps of other profiles (private space included) listed by the privileged transport, if one is up. */
+private fun privilegedProfileApps(ctx: android.content.Context): Map<String, InstalledApp> {
+    val pm = ctx.packageManager
+    return ProfileApps.fetch(ctx).orEmpty().mapNotNull { e ->
+        val ai = ProfileApps.archiveInfo(ctx, e.apk) ?: return@mapNotNull null
+        val label = runCatching { ai.loadLabel(pm).toString() }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: e.pkg
+        e.pkg to InstalledApp(e.pkg, label, ai, runCatching { ai.loadIcon(pm) }.getOrNull())
+    }.toMap()
+}
+
+/**
+ * Launchable apps of every other profile the launcher service will show this app, keyed by package.
+ * Work profiles are always visible; a private space only if the system lets this app see it.
+ */
+private fun otherProfileApps(ctx: android.content.Context): Map<String, InstalledApp> {
+    val launcher = ctx.getSystemService(android.content.pm.LauncherApps::class.java) ?: return emptyMap()
+    val me = android.os.Process.myUserHandle()
+    val out = LinkedHashMap<String, InstalledApp>()
+    for (profile in runCatching { launcher.profiles }.getOrDefault(emptyList())) {
+        if (profile == me) continue
+        val activities = runCatching { launcher.getActivityList(null, profile) }.getOrDefault(emptyList())
+        for (a in activities) {
+            val pkg = a.applicationInfo.packageName
+            if (pkg in out) continue
+            out[pkg] = InstalledApp(
+                pkg,
+                a.label.toString(),
+                a.applicationInfo,
+                runCatching { a.getBadgedIcon(0) }.getOrNull(),
+            )
+        }
+    }
+    return out
+}
 
 private data class RuleEditorState(val rule: AppRule, val isNew: Boolean)
 
@@ -563,14 +608,15 @@ fun AppPickerDialog(
                     val ai = ri.activityInfo?.applicationInfo ?: return@mapNotNull null
                     InstalledApp(ai.packageName, pm.getApplicationLabel(ai).toString(), ai)
                 }
+            val otherProfiles = privilegedProfileApps(ctx) + otherProfileApps(ctx)
             val launcherPackages = launcherApps.mapTo(mutableSetOf()) { it.pkg }
             val learnedOnly = (alsoOffer - launcherPackages).mapNotNull { pkg ->
                 runCatching {
                     val ai = pm.getApplicationInfo(pkg, 0)
                     InstalledApp(pkg, pm.getApplicationLabel(ai).toString(), ai)
-                }.getOrNull()
+                }.getOrNull() ?: otherProfiles[pkg]
             }
-            (launcherApps + learnedOnly)
+            (launcherApps + learnedOnly + otherProfiles.values)
                 .distinctBy { it.pkg }
                 .filterNot { it.pkg == excludePackage }
                 .sortedBy { it.label.lowercase() }
@@ -648,7 +694,7 @@ private fun AppIcon(app: InstalledApp) {
         val info = app.info ?: return@produceState
         value = withContext(Dispatchers.IO) {
             runCatching {
-                ctx.packageManager.getApplicationIcon(info).toBitmap(80, 80).asImageBitmap()
+                (app.icon ?: ctx.packageManager.getApplicationIcon(info)).toBitmap(80, 80).asImageBitmap()
             }.getOrNull()
         }
     }

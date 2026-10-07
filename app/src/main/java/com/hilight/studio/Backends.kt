@@ -520,6 +520,9 @@ class ShizukuBackend(private val ctx: Context) : Backend {
         refresh()
     }
 
+    /** Every user's third-party packages as seen by the shell identity; null when not connected. */
+    fun listProfilePackages(): String? = runCatching { service?.listProfilePackages() }.getOrNull()
+
     fun isInstalled(): Boolean = runCatching {
         ctx.packageManager.getPackageInfo(SHIZUKU_PKG, 0)
         true

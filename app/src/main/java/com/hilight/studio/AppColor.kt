@@ -41,8 +41,9 @@ object AppColor {
                 cache[packageName] = Entry(info.longVersionCode, info.lastUpdateTime, color)
                 color
             } catch (_: PackageManager.NameNotFoundException) {
+                // Not in this profile: an app of the work or private profile, read from its APK.
                 cache.remove(packageName)
-                null
+                otherProfileColor(context, packageName)
             } catch (_: RuntimeException) {
                 // An unavailable/broken drawable must never prevent an alert or editing a rule.
                 cache.remove(packageName)
@@ -50,6 +51,24 @@ object AppColor {
             }
         }
     }
+}
+
+private fun otherProfileColor(context: Context, packageName: String): Int? = try {
+    val icon = ProfileApps.iconFor(context.applicationContext, packageName)?.mutate()
+    if (icon == null) null else {
+        val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+        try {
+            icon.setBounds(0, 0, bitmap.width, bitmap.height)
+            icon.draw(Canvas(bitmap))
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            dominantIconColor(pixels)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+} catch (_: RuntimeException) {
+    null
 }
 
 /** Quantized color voting avoids averaging different brand colors into a muddy new color. */
