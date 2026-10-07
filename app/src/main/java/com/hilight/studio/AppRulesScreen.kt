@@ -89,9 +89,6 @@ data class InstalledApp(
 
 private fun profileKey(pkg: String, userId: Int?) = "$pkg|${userId ?: -1}"
 
-private fun profileLabel(ctx: android.content.Context, app: String, profile: String) =
-    ctx.getString(R.string.rules_app_in_profile, app, profile)
-
 private fun badged(ctx: android.content.Context, icon: android.graphics.drawable.Drawable?, userId: Int) =
     icon?.let {
         runCatching {
@@ -103,24 +100,20 @@ private fun badged(ctx: android.content.Context, icon: android.graphics.drawable
     }
 
 /** Apps of other profiles (private space included) listed by the privileged transport, if one is up. */
-private fun privilegedProfileApps(ctx: android.content.Context): Pair<Map<String, InstalledApp>, Map<Int, String>> {
+private fun privilegedProfileApps(ctx: android.content.Context): Map<String, InstalledApp> {
     val pm = ctx.packageManager
-    val entries = ProfileApps.fetch(ctx).orEmpty()
-    val names = entries.filter { it.userName.isNotBlank() }.associate { it.userId to it.userName }
-    val apps = entries.mapNotNull { e ->
+    return ProfileApps.fetch(ctx).orEmpty().mapNotNull { e ->
         val ai = ProfileApps.archiveInfo(ctx, e.apk) ?: return@mapNotNull null
         val label = runCatching { ai.loadLabel(pm).toString() }.getOrNull()
             ?.takeIf { it.isNotBlank() } ?: e.pkg
-        val profile = e.userName.ifBlank { ctx.getString(R.string.rules_profile_other) }
         profileKey(e.pkg, e.userId) to InstalledApp(
             e.pkg,
-            profileLabel(ctx, label, profile),
+            label,
             ai,
             badged(ctx, runCatching { ai.loadIcon(pm) }.getOrNull(), e.userId),
             e.userId,
         )
     }.toMap()
-    return apps to names
 }
 
 private fun userIdOf(user: android.os.UserHandle): Int =
@@ -131,21 +124,13 @@ private fun userIdOf(user: android.os.UserHandle): Int =
  * Launchable apps of every other profile the launcher service will show this app. Work profiles
  * are always visible; a private space only if the system lets this app see it.
  */
-private fun otherProfileApps(
-    ctx: android.content.Context,
-    names: Map<Int, String>,
-): Map<String, InstalledApp> {
+private fun otherProfileApps(ctx: android.content.Context): Map<String, InstalledApp> {
     val launcher = ctx.getSystemService(android.content.pm.LauncherApps::class.java) ?: return emptyMap()
     val me = android.os.Process.myUserHandle()
     val out = LinkedHashMap<String, InstalledApp>()
     for (profile in runCatching { launcher.profiles }.getOrDefault(emptyList())) {
         if (profile == me) continue
         val id = userIdOf(profile)
-        val profileName = names[id] ?: ctx.getString(
-            if (runCatching { launcher.getLauncherUserInfo(profile)?.userType }.getOrNull() ==
-                android.os.UserManager.USER_TYPE_PROFILE_MANAGED) R.string.rules_profile_work
-            else R.string.rules_profile_other,
-        )
         val activities = runCatching { launcher.getActivityList(null, profile) }.getOrDefault(emptyList())
         for (a in activities) {
             val pkg = a.applicationInfo.packageName
@@ -153,7 +138,7 @@ private fun otherProfileApps(
                 profileKey(pkg, id),
                 InstalledApp(
                     pkg,
-                    profileLabel(ctx, a.label.toString(), profileName),
+                    a.label.toString(),
                     a.applicationInfo,
                     runCatching { a.getBadgedIcon(0) }.getOrNull(),
                     id,
@@ -653,8 +638,7 @@ fun AppPickerDialog(
                     val ai = ri.activityInfo?.applicationInfo ?: return@mapNotNull null
                     InstalledApp(ai.packageName, pm.getApplicationLabel(ai).toString(), ai)
                 }
-            val (privileged, names) = privilegedProfileApps(ctx)
-            val otherProfiles = privileged + otherProfileApps(ctx, names)
+            val otherProfiles = privilegedProfileApps(ctx) + otherProfileApps(ctx)
             val launcherPackages = launcherApps.mapTo(mutableSetOf()) { it.pkg }
             val learnedOnly = (alsoOffer - launcherPackages).mapNotNull { pkg ->
                 runCatching {

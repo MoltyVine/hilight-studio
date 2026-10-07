@@ -206,7 +206,4 @@
     <string name="rules_repeat_sleep_hint">Android may delay reminders while asleep. When Android wakes the app, one overdue reminder can play; missed reminders never pile up.</string>
     <string name="rules_repeat_pulse_hint">Reminder pulse length. The minimum interval increases with longer pulses to keep at least 80% of the time dark.</string>
     <string name="rules_keyword_summary">Text contains: %1$s</string>
-    <string name="rules_app_in_profile">%1$s · %2$s</string>
-    <string name="rules_profile_work">Work</string>
-    <string name="rules_profile_other">Other profile</string>
 </resources>
