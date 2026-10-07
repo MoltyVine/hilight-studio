@@ -105,6 +105,8 @@ data class MessageInfo(
     val readFailed: Boolean = false,
     /** Set from Android notification ranking; unknown ranking preserves existing behavior. */
     val isSilent: Boolean = false,
+    /** Android user the notification was posted for: 0 is the main profile, others work/private. */
+    val userId: Int = 0,
 ) {
     /**
      * True when this looks like a chat the user could write a per-contact rule for.
@@ -272,8 +274,11 @@ object ConversationMatch {
         if (info.isGroupSummary) return null
         val candidates = rules.filter {
             it.enabled && it.trigger == Trigger.NOTIFICATION &&
-                !(it.isCatchAll && info.pkg in it.excludedPackages)
+                !(it.isCatchAll && info.pkg in it.excludedPackages) &&
+                (it.profileId == null || it.profileId == info.userId)
         }
+        // A rule made for this profile outranks a legacy any-profile one when both match.
+        fun specific(rule: AppRule) = if (rule.profileId != null) 1 else 0
         fun accepted(rule: AppRule, strength: MatchStrength): Pair<AppRule, MatchStrength>? =
             if (rule.ignoreSilent && info.isSilent) null else rule to strength
 
@@ -285,16 +290,18 @@ object ConversationMatch {
             .mapNotNull { rule ->
                 strength(rule, info)?.let { s -> Triple(rule, s, if (rule.pkg == info.pkg) 1 else 0) }
             }
-            .maxWithOrNull(compareBy({ it.second.score }, { it.third }))
+            .maxWithOrNull(compareBy({ it.second.score }, { it.third }, { specific(it.first) }))
         if (best != null) return accepted(best.first, best.second)
 
-        candidates.firstOrNull { it.pkg == info.pkg && !it.isConversationRule }
+        candidates.filter { it.pkg == info.pkg && !it.isConversationRule }
+            .maxByOrNull { specific(it) }
             ?.let { return accepted(it, MatchStrength.APP) }
 
         // Note that a catch-all rule still fires for everything this app's conversation rules did not
         // match. That is intended — the catch-all is the "everything else" colour — but it does make a
         // per-chat rule look as though it fires for everyone until the catch-all is turned off.
-        return candidates.firstOrNull { it.isCatchAll && !it.isConversationRule }
+        return candidates.filter { it.isCatchAll && !it.isConversationRule }
+            .maxByOrNull { specific(it) }
             ?.let { accepted(it, MatchStrength.CATCH_ALL) }
     }
 

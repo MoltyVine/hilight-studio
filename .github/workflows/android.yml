@@ -35,3 +35,10 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" dex packages "$release_apk" > "$RUNNER_TEMP/dex-packages.txt"
           grep -q 'com.hilight.core.AdbHelper' "$RUNNER_TEMP/dex-packages.txt"
           grep -q 'com.hilight.studio.HiLightUserService' "$RUNNER_TEMP/dex-packages.txt"
+      - name: Upload debug APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hilight-studio-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

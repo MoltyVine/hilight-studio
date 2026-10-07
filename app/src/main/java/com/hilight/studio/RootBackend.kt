@@ -383,6 +383,14 @@ class RootBackend(private val ctx: Context) : Backend {
         main.post { onStateChanged?.invoke() }
     }
 
+    /** Same listing as the Shizuku service, only once root is already granted (never prompts). */
+    fun listProfilePackages(): String? {
+        if (_state.value != State.RUNNING) return null
+        return runCatching {
+            runSu(ProfileApps.SCRIPT, 10).takeIf { it.code == 0 }?.output
+        }.getOrNull()
+    }
+
     private fun runPlain(command: String, timeoutSeconds: Long = 3): RootProcess.Result =
         RootProcess.run(listOf("sh", "-c", command), timeoutSeconds)
 

@@ -73,6 +73,27 @@ public final class HiLightUserService extends IHiLightService.Stub {
     }
 
     @Override
+    public String listProfilePackages() {
+        try {
+            Process process = new ProcessBuilder("sh", "-c", ProfileApps.SCRIPT)
+                    .redirectErrorStream(true).start();
+            StringBuilder out = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null && out.length() < 1_000_000) {
+                    out.append(line).append('\n');
+                }
+            }
+            process.waitFor();
+            return out.toString();
+        } catch (Exception e) {
+            Log.w("profile package listing failed: " + e);
+            return "";
+        }
+    }
+
+    @Override
     public int ledCount() {
         return engine.ledCount();
     }

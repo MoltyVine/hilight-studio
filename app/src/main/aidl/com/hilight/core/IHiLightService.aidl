@@ -20,4 +20,10 @@ interface IHiLightService {
      * if one remains, takeover fails closed instead of trusting or terminating the other identity.
      */
     boolean stopAdbRenderers(int expectedPid, String expectedRendererInstanceId) = 4;
+
+    /**
+     * Raw `user:<id>` / `pm list packages -3 -f` listing of every user on the device, for the app
+     * picker. Only the shell or root identity can see packages of a work or private profile.
+     */
+    String listProfilePackages() = 5;
 }
