@@ -94,7 +94,11 @@ private fun profileLabel(ctx: android.content.Context, app: String, profile: Str
 
 private fun badged(ctx: android.content.Context, icon: android.graphics.drawable.Drawable?, userId: Int) =
     icon?.let {
-        runCatching { ctx.packageManager.getUserBadgedIcon(it, android.os.UserHandle.of(userId)) }
+        runCatching {
+            val handle = android.os.UserHandle::class.java.getMethod("of", Int::class.javaPrimitiveType)
+                .invoke(null, userId) as android.os.UserHandle
+            ctx.packageManager.getUserBadgedIcon(it, handle)
+        }
             .getOrDefault(it)
     }
 
@@ -132,14 +136,14 @@ private fun otherProfileApps(
     names: Map<Int, String>,
 ): Map<String, InstalledApp> {
     val launcher = ctx.getSystemService(android.content.pm.LauncherApps::class.java) ?: return emptyMap()
-    val users = ctx.getSystemService(android.os.UserManager::class.java)
     val me = android.os.Process.myUserHandle()
     val out = LinkedHashMap<String, InstalledApp>()
     for (profile in runCatching { launcher.profiles }.getOrDefault(emptyList())) {
         if (profile == me) continue
         val id = userIdOf(profile)
         val profileName = names[id] ?: ctx.getString(
-            if (runCatching { users?.isManagedProfile(id) }.getOrNull() == true) R.string.rules_profile_work
+            if (runCatching { launcher.getLauncherUserInfo(profile)?.userType }.getOrNull() ==
+                android.os.UserManager.USER_TYPE_PROFILE_MANAGED) R.string.rules_profile_work
             else R.string.rules_profile_other,
         )
         val activities = runCatching { launcher.getActivityList(null, profile) }.getOrDefault(emptyList())
