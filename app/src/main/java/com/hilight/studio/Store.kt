@@ -1074,7 +1074,7 @@ class Store private constructor(private val app: Context) {
         val enabled = _rules.value.filter {
             it.enabled && it.trigger == trigger && !it.isConversationRule
         }
-        return enabled.firstOrNull { it.pkg == pkg }
+        return enabled.filter { it.pkg == pkg }.minByOrNull { if (it.profileId == null) 0 else 1 }
             ?: enabled.firstOrNull { it.isCatchAll }
     }
 

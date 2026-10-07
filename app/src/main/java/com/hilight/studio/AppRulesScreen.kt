@@ -75,45 +75,85 @@ fun ruleLabel(rule: AppRule): String =
 
 /**
  * [icon] is set for apps from another profile (work, private): the package manager of this profile
- * cannot load their icons, so the launcher service's already badged one travels with the entry.
+ * cannot load their icons, so the launcher service's or the APK's own one travels with the entry.
+ * [userId] is null for this profile, and the Android user id otherwise; a rule made from the app
+ * carries it, so the same app in two profiles is two apps.
  */
 data class InstalledApp(
     val pkg: String,
     val label: String,
     val info: ApplicationInfo?,
     val icon: android.graphics.drawable.Drawable? = null,
+    val userId: Int? = null,
 )
 
+private fun profileKey(pkg: String, userId: Int?) = "$pkg|${userId ?: -1}"
+
+private fun profileLabel(ctx: android.content.Context, app: String, profile: String) =
+    ctx.getString(R.string.rules_app_in_profile, app, profile)
+
+private fun badged(ctx: android.content.Context, icon: android.graphics.drawable.Drawable?, userId: Int) =
+    icon?.let {
+        runCatching { ctx.packageManager.getUserBadgedIcon(it, android.os.UserHandle.of(userId)) }
+            .getOrDefault(it)
+    }
+
 /** Apps of other profiles (private space included) listed by the privileged transport, if one is up. */
-private fun privilegedProfileApps(ctx: android.content.Context): Map<String, InstalledApp> {
+private fun privilegedProfileApps(ctx: android.content.Context): Pair<Map<String, InstalledApp>, Map<Int, String>> {
     val pm = ctx.packageManager
-    return ProfileApps.fetch(ctx).orEmpty().mapNotNull { e ->
+    val entries = ProfileApps.fetch(ctx).orEmpty()
+    val names = entries.filter { it.userName.isNotBlank() }.associate { it.userId to it.userName }
+    val apps = entries.mapNotNull { e ->
         val ai = ProfileApps.archiveInfo(ctx, e.apk) ?: return@mapNotNull null
         val label = runCatching { ai.loadLabel(pm).toString() }.getOrNull()
             ?.takeIf { it.isNotBlank() } ?: e.pkg
-        e.pkg to InstalledApp(e.pkg, label, ai, runCatching { ai.loadIcon(pm) }.getOrNull())
+        val profile = e.userName.ifBlank { ctx.getString(R.string.rules_profile_other) }
+        profileKey(e.pkg, e.userId) to InstalledApp(
+            e.pkg,
+            profileLabel(ctx, label, profile),
+            ai,
+            badged(ctx, runCatching { ai.loadIcon(pm) }.getOrNull(), e.userId),
+            e.userId,
+        )
     }.toMap()
+    return apps to names
 }
 
+private fun userIdOf(user: android.os.UserHandle): Int =
+    runCatching { android.os.UserHandle::class.java.getMethod("getIdentifier").invoke(user) as Int }
+        .getOrElse { user.hashCode() }
+
 /**
- * Launchable apps of every other profile the launcher service will show this app, keyed by package.
- * Work profiles are always visible; a private space only if the system lets this app see it.
+ * Launchable apps of every other profile the launcher service will show this app. Work profiles
+ * are always visible; a private space only if the system lets this app see it.
  */
-private fun otherProfileApps(ctx: android.content.Context): Map<String, InstalledApp> {
+private fun otherProfileApps(
+    ctx: android.content.Context,
+    names: Map<Int, String>,
+): Map<String, InstalledApp> {
     val launcher = ctx.getSystemService(android.content.pm.LauncherApps::class.java) ?: return emptyMap()
+    val users = ctx.getSystemService(android.os.UserManager::class.java)
     val me = android.os.Process.myUserHandle()
     val out = LinkedHashMap<String, InstalledApp>()
     for (profile in runCatching { launcher.profiles }.getOrDefault(emptyList())) {
         if (profile == me) continue
+        val id = userIdOf(profile)
+        val profileName = names[id] ?: ctx.getString(
+            if (runCatching { users?.isManagedProfile(id) }.getOrNull() == true) R.string.rules_profile_work
+            else R.string.rules_profile_other,
+        )
         val activities = runCatching { launcher.getActivityList(null, profile) }.getOrDefault(emptyList())
         for (a in activities) {
             val pkg = a.applicationInfo.packageName
-            if (pkg in out) continue
-            out[pkg] = InstalledApp(
-                pkg,
-                a.label.toString(),
-                a.applicationInfo,
-                runCatching { a.getBadgedIcon(0) }.getOrNull(),
+            out.putIfAbsent(
+                profileKey(pkg, id),
+                InstalledApp(
+                    pkg,
+                    profileLabel(ctx, a.label.toString(), profileName),
+                    a.applicationInfo,
+                    runCatching { a.getBadgedIcon(0) }.getOrNull(),
+                    id,
+                ),
             )
         }
     }
@@ -182,7 +222,7 @@ fun AppRulesScreen(store: Store) {
     }
 
     val startWholeAppRule: (InstalledApp) -> Unit = { app ->
-        val draft = nextWholeAppRule(app.pkg, app.label, rules)
+        val draft = nextWholeAppRule(app.pkg, app.label, rules, app.userId)
         if (draft == null) {
             Toast.makeText(ctx, R.string.rules_both_triggers_exist, Toast.LENGTH_SHORT).show()
         } else {
@@ -326,13 +366,14 @@ fun AppRulesScreen(store: Store) {
                 val fresh = AppRule(
                     pkg = app.pkg,
                     label = app.label,
+                    profileId = app.userId,
                     conversationKey = ref.key,
                     conversationName = ref.name,
                     conversationIsGroup = ref.isGroup,
                 )
                 // A chat that already has a rule opens that rule instead of a blank one. Both share
                 // an id, so saving the blank one would overwrite the colour already chosen for them.
-                val stored = rules.firstOrNull { it.pkg == fresh.pkg && it.trigger == fresh.trigger && it.conversationKey == fresh.conversationKey && it.conversationName == fresh.conversationName }
+                val stored = rules.firstOrNull { it.pkg == fresh.pkg && it.profileId == fresh.profileId && it.trigger == fresh.trigger && it.conversationKey == fresh.conversationKey && it.conversationName == fresh.conversationName }
                 editing = RuleEditorState(stored ?: fresh.copy(stableId = java.util.UUID.randomUUID().toString()), isNew = stored == null)
             },
         )
@@ -380,12 +421,12 @@ fun AppRulesScreen(store: Store) {
     copyingFrom?.let { source ->
         AppPickerDialog(
             alsoOffer = learnedPackages,
-            excludePackage = source.pkg,
+            excludePackage = source.pkg.takeIf { source.profileId == null },
             onDismiss = { copyingFrom = null },
             onPick = { app ->
                 copyingFrom = null
                 editing = RuleEditorState(
-                    copyWholeAppRule(source, app.pkg, app.label),
+                    copyWholeAppRule(source, app.pkg, app.label, app.userId),
                     isNew = true,
                 )
             },
@@ -608,17 +649,18 @@ fun AppPickerDialog(
                     val ai = ri.activityInfo?.applicationInfo ?: return@mapNotNull null
                     InstalledApp(ai.packageName, pm.getApplicationLabel(ai).toString(), ai)
                 }
-            val otherProfiles = privilegedProfileApps(ctx) + otherProfileApps(ctx)
+            val (privileged, names) = privilegedProfileApps(ctx)
+            val otherProfiles = privileged + otherProfileApps(ctx, names)
             val launcherPackages = launcherApps.mapTo(mutableSetOf()) { it.pkg }
             val learnedOnly = (alsoOffer - launcherPackages).mapNotNull { pkg ->
                 runCatching {
                     val ai = pm.getApplicationInfo(pkg, 0)
                     InstalledApp(pkg, pm.getApplicationLabel(ai).toString(), ai)
-                }.getOrNull() ?: otherProfiles[pkg]
+                }.getOrNull() ?: otherProfiles.values.firstOrNull { it.pkg == pkg }
             }
             (launcherApps + learnedOnly + otherProfiles.values)
-                .distinctBy { it.pkg }
-                .filterNot { it.pkg == excludePackage }
+                .distinctBy { profileKey(it.pkg, it.userId) }
+                .filterNot { it.pkg == excludePackage && it.userId == null }
                 .sortedBy { it.label.lowercase() }
         }
     }
@@ -668,7 +710,7 @@ fun AppPickerDialog(
                             }
                         }
                     }
-                    items(shown, key = { it.pkg }) { app ->
+                    items(shown, key = { profileKey(it.pkg, it.userId) }) { app ->
                         Row(
                             Modifier
                                 .fillMaxWidth()

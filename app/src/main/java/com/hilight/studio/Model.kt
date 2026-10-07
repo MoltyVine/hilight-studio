@@ -197,6 +197,12 @@ data class AppRule(
     val stableId: String? = null,
     /** Exclusions apply only to catch-all rules, leaving explicit app rules independent. */
     val excludedPackages: Set<String> = emptySet(),
+    /**
+     * The work or private profile this rule is for, as an Android user id. Null is the legacy
+     * behaviour — any profile — so rules saved before profiles existed keep matching exactly as
+     * they did. A profile rule is preferred over a null one for notifications from that profile.
+     */
+    val profileId: Int? = null,
 ) {
     fun effectiveLook(colorOverride: Int = color): Ambient =
         (look ?: Ambient(secondColor = colorOverride, randomIntervalMs = 500)).copy(
@@ -221,7 +227,9 @@ data class AppRule(
      * Package plus trigger used to be enough, but an app can now hold several rules — one per
      * conversation, plus a plain one for everything else — so the conversation has to be part of it.
      */
-    val id: String get() = stableId ?: "$pkg|${trigger.name}|${conversationKey ?: conversationName ?: ""}"
+    val id: String get() = stableId
+        ?: ("$pkg|${trigger.name}|${conversationKey ?: conversationName ?: ""}" +
+            (profileId?.let { "|u$it" } ?: ""))
 
     val safeRepeatPulseMs: Int get() = repeatPulseMs.coerceIn(1_000, 3_000)
     // At least four dark milliseconds per lit millisecond; the old 1s / 5s minimum stays valid.
@@ -253,6 +261,7 @@ data class AppRule(
         put("useAppColor", useAppColor)
         stableId?.let { put("stableId", it) }
         put("excludedPackages", JSONArray().also { a -> excludedPackages.sorted().forEach(a::put) })
+        profileId?.let { put("profileId", it) }
     }
 
     companion object {
@@ -288,6 +297,7 @@ data class AppRule(
             excludedPackages = o.optJSONArray("excludedPackages")?.let { a ->
                 (0 until a.length()).mapNotNull { a.optString(it).takeIf(String::isNotBlank) }.toSet()
             } ?: emptySet(),
+            profileId = if (o.has("profileId")) o.optInt("profileId") else null,
         )
     }
 }

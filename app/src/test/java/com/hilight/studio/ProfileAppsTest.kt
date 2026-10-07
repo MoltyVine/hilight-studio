@@ -7,10 +7,10 @@ class ProfileAppsTest {
     private val raw = """
         user:0
         package:/data/app/~~aa==/com.mail-bb==/base.apk=com.mail
-        user:10
+        user:10:Work profile
         package:/data/app/~~cc==/com.work-dd==/base.apk=com.work
         package:/data/app/~~aa==/com.mail-bb==/base.apk=com.mail
-        user:11
+        user:11:Private space
         package:/data/app/~~ee==/com.secret-ff==/base.apk=com.secret
         garbage
     """.trimIndent()
@@ -23,5 +23,11 @@ class ProfileAppsTest {
     @Test fun otherProfilesExcludeOwnUserAndDuplicates() {
         val pkgs = ProfileApps.otherProfileEntries(raw, 0).map { it.userId to it.pkg }
         assertEquals(listOf(10 to "com.work", 10 to "com.mail", 11 to "com.secret"), pkgs)
+    }
+
+    @Test fun keepsTheProfileNameAndTheSameAppInEveryProfile() {
+        val e = ProfileApps.otherProfileEntries(raw + "\nuser:12:Second\npackage:/a/base.apk=com.work", 0)
+        assertEquals("Work profile", e.first { it.pkg == "com.work" && it.userId == 10 }.userName)
+        assertEquals(setOf(10, 12), e.filter { it.pkg == "com.work" }.map { it.userId }.toSet())
     }
 }

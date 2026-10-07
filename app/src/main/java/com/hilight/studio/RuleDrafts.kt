@@ -5,11 +5,16 @@ internal fun nextWholeAppRule(
     pkg: String,
     label: String,
     existing: List<AppRule>,
+    profileId: Int? = null,
 ): AppRule? {
-    val used = existing.filter { it.pkg == pkg && !it.isConversationRule }.map { it.trigger }.toSet()
+    val used = existing.filter { it.pkg == pkg && it.profileId == profileId && !it.isConversationRule }
+        .map { it.trigger }.toSet()
     val trigger = if (Trigger.NOTIFICATION in used && Trigger.FOREGROUND !in used)
         Trigger.FOREGROUND else Trigger.NOTIFICATION
-    return AppRule(pkg = pkg, label = label, trigger = trigger, stableId = java.util.UUID.randomUUID().toString())
+    return AppRule(
+        pkg = pkg, label = label, trigger = trigger, profileId = profileId,
+        stableId = java.util.UUID.randomUUID().toString(),
+    )
 }
 
 /** Copies portable settings to another app while dropping notification identity tied to the source. */
@@ -17,12 +22,14 @@ internal fun copyWholeAppRule(
     source: AppRule,
     targetPkg: String,
     targetLabel: String,
+    targetProfileId: Int? = null,
 ): AppRule {
     require(!source.isConversationRule) { "conversation rules cannot be copied between apps" }
     return source.copy(
         stableId = java.util.UUID.randomUUID().toString(),
         pkg = targetPkg,
         label = targetLabel,
+        profileId = targetProfileId,
         keyword = "",
         conversationKey = null,
         conversationName = null,

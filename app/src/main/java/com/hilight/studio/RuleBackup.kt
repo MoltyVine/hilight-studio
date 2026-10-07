@@ -69,6 +69,7 @@ internal object RuleBackup {
         booleans(o, "enabled", "randomColor", "onlyWhenScreenOff", "onlyWhenFaceDown",
             "includeGroups", "conversationIsGroup", "ignoreSilent", "repeatWhilePending")
         if (o.has("useAppColor")) booleans(o, "useAppColor")
+        if (o.has("profileId")) number(o, "profileId", 0.0, 1_000_000.0)
         number(o, "color", 0.0, 4294967295.0)
         number(o, "durationMs", 250.0, Limits.RULE_MAX_MS.toDouble())
         number(o, "speedMs", 100.0, 10_000.0)

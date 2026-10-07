@@ -311,4 +311,7 @@
     <string name="rules_repeat_sleep_hint">スリープ中はAndroidによりリマインダーが遅れる場合があります。アプリの動作再開時に期限を過ぎたリマインダーを1回再生します。遅れた分をまとめて再生することはありません。</string>
     <string name="rules_repeat_pulse_hint">リマインダーの点灯時間です。消灯時間を80%以上確保するため、長い点灯では最短間隔も長くなります。</string>
     <string name="rules_keyword_summary">テキストに含む: %1$s</string>
+    <string name="rules_app_in_profile">%1$s · %2$s</string>
+    <string name="rules_profile_work">仕事用</string>
+    <string name="rules_profile_other">別のプロファイル</string>
 </resources>

@@ -44,6 +44,7 @@ object NotificationPeek {
             pkg = runCatching { sbn.packageName }.getOrNull().orEmpty(),
             notifKey = runCatching { sbn.key }.getOrNull().orEmpty(),
             postTimeMs = runCatching { sbn.postTime }.getOrDefault(0L),
+            userId = runCatching { sbn.userId }.getOrDefault(0),
         )
         // A failed read is flagged rather than left looking like a notification that simply named
         // nobody. The two are indistinguishable otherwise, and the advice for each is opposite: one
